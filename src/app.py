@@ -78,9 +78,10 @@ with tab1:
 # TAB 2: Semantic Search (RAG)
 with tab2:
     st.header("Contextual Intelligence (RAG)")
+    st.info("💡 **Uso:** Haz preguntas abiertas sobre cualquier parte del proyecto. Gemini buscará automáticamente en todos tus archivos sin que tengas que especificar rutas.")
     if not google_api_key:
-        st.info("Usando indexación por defecto. Conecta Gemini para razonamiento avanzado.")
-    query = st.text_input("Pregunta sobre el código:", key="rag_query", placeholder="¿Dónde está la lógica de edición de archivos?")
+        st.warning("Conecta Gemini para habilitar el razonamiento avanzado sobre el código.")
+    query = st.text_input("Pregunta sobre el código:", key="rag_query", placeholder="Ej: ¿Cómo funciona el orquestador? o ¿Dónde se definen las rutas del API?")
     if st.button("Consultar", key="rag_btn"):
         if query:
             with st.spinner("Gemini está pensando..."):
@@ -96,6 +97,7 @@ with tab3:
 
     with col1:
         st.subheader("Editar Archivo con IA (Gemini)")
+        st.caption("💡 **Uso:** Indica el archivo específico que deseas mejorar y dale una instrucción clara.")
         ai_target = st.text_input("Ruta del archivo a editar:", key="ai_edit_path", placeholder="packages/mi-servicio/main.py")
         ai_instruction = st.text_area("Instrucción para la IA:", key="ai_instruction", placeholder="Agrega un endpoint de suma que acepte a y b.")
         if st.button("🪄 Editar con IA"):
@@ -140,16 +142,45 @@ with tab3:
     sc_dir = st.text_input("Directorio Destino:", key="sc_dir", value="packages")
     sc_desc = st.text_area("Descripción (Prompt para IA):", key="sc_desc", placeholder="Un backend Python FastAPI con un endpoint básico.")
 
-    if st.button("Crear Componente", key="sc_btn"):
-        if sc_name and sc_dir and sc_desc:
-            with st.spinner(f"Gemini está generando {sc_name}..."):
-                if scaffold_component(sc_name, sc_dir, sc_desc):
-                    st.success(f"Componente {sc_name} creado con éxito en {sc_dir}/")
-                    st.session_state.graph = scan_directory()
+    col_sc1, col_sc2 = st.columns(2)
+    with col_sc1:
+        if st.button("🚀 Crear Componente", key="sc_btn", use_container_width=True):
+            if sc_name and sc_dir and sc_desc:
+                with st.spinner(f"Gemini está generando {sc_name}..."):
+                    if scaffold_component(sc_name, sc_dir, sc_desc):
+                        st.success(f"Componente {sc_name} creado con éxito en {sc_dir}/")
+                        st.session_state.graph = scan_directory()
+                    else:
+                        st.error("Error al crear el componente. Revisa el nombre o la API Key.")
+            else:
+                st.warning("Por favor completa todos los campos.")
+
+    with col_sc2:
+        if st.button("📦 Instalar Dependencias", key="install_deps_btn", use_container_width=True):
+            if sc_name and sc_dir:
+                target_path = os.path.join(sc_dir, sc_name)
+                req_path = os.path.join(target_path, "requirements.txt")
+                if os.path.exists(req_path):
+                    with st.spinner(f"Instalando dependencias en {target_path}..."):
+                        res = run_command(f"pip install -r {req_path}")
+                        if res["returncode"] == 0:
+                            st.success("Dependencias instaladas correctamente.")
+                        else:
+                            st.error(f"Error en la instalación: {res['stderr']}")
                 else:
-                    st.error("Error al crear el componente. Revisa el nombre o la API Key.")
-        else:
-            st.warning("Por favor completa todos los campos.")
+                    # Intentar buscar en subcarpetas (a veces el scaffolding crea una subcarpeta con el mismo nombre)
+                    deep_req = next(Path(target_path).glob("**/requirements.txt"), None)
+                    if deep_req:
+                        with st.spinner(f"Instalando dependencias desde {deep_req}..."):
+                            res = run_command(f"pip install -r {deep_req}")
+                            if res["returncode"] == 0:
+                                st.success(f"Dependencias instaladas desde {deep_req}")
+                            else:
+                                st.error(f"Error: {res['stderr']}")
+                    else:
+                        st.error(f"No se encontró requirements.txt en {target_path}")
+            else:
+                st.warning("Indica el nombre y directorio del componente.")
 
 # TAB 4: Process Management
 with tab4:
