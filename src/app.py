@@ -18,6 +18,8 @@ if "graph" not in st.session_state:
     st.session_state.graph = scan_directory()
 if "index" not in st.session_state:
     st.session_state.index = create_or_load_index()
+if "studio_chats" not in st.session_state:
+    st.session_state.studio_chats = {} # component_name: [messages]
 
 # Sidebar - Project Navigation
 st.sidebar.title("🛠️ Monorepo Agent")
@@ -150,6 +152,12 @@ with tab3:
                     if scaffold_component(sc_name, sc_dir, sc_desc):
                         st.success(f"Componente {sc_name} creado con éxito en {sc_dir}/")
                         st.session_state.graph = scan_directory()
+                        # Initialize Studio Chat for this new component
+                        intro_prompt = "Explica brevemente qué archivos creaste y qué hace cada uno. También indica cómo se debe inicializar y qué dependencias tiene."
+                        intro_res = query_index(st.session_state.index, f"En el nuevo componente {sc_name}: {intro_prompt}")
+                        st.session_state.studio_chats[sc_name] = [
+                            {"role": "assistant", "content": f"¡He terminado de crear **{sc_name}**! Aquí tienes un resumen de lo que hice:\n\n{intro_res}"}
+                        ]
                     else:
                         st.error("Error al crear el componente. Revisa el nombre o la API Key.")
             else:
@@ -230,37 +238,56 @@ with tab5:
         col_st1, col_st2 = st.columns([2, 1])
 
         with col_st1:
-            st.subheader(f"📂 Archivos en {selected_comp}")
-            # Quick view of files in the component
-            comp_files = []
-            for root, dirs, files in os.walk(comp_path):
-                for f in files:
-                    rel = os.path.relpath(os.path.join(root, f), comp_path)
-                    comp_files.append(rel)
-            st.write(", ".join(comp_files))
+            st.subheader(f"💬 Studio Chat: {selected_comp}")
 
-            # Integrated Chat for THIS component
-            st.divider()
-            st.subheader("💬 Preguntar sobre este componente")
-            comp_q = st.text_input("Duda:", key="comp_q", placeholder=f"¿Cómo inicializo {selected_comp}?")
-            if st.button("Consultar a Gemini", key="comp_q_btn"):
-                with st.spinner("Analizando componente..."):
-                    # Scope RAG to this component
-                    response = query_index(st.session_state.index, f"En el componente {selected_comp} ubicado en {comp_path}: {comp_q}")
-                    st.markdown(f"**Gemini:** {response}")
+            # Initialize history if not exists
+            if selected_comp not in st.session_state.studio_chats:
+                st.session_state.studio_chats[selected_comp] = [
+                    {"role": "assistant", "content": f"Hola. Estoy listo para ayudarte con el componente **{selected_comp}**. ¿Qué quieres hacer hoy?"}
+                ]
 
-            # Iterative AI Editing
-            st.divider()
-            st.subheader("🪄 Mejorar este componente")
-            target_f = st.selectbox("Archivo a editar:", comp_files, key="studio_file")
-            full_target_f = os.path.join(comp_path, target_f)
-            studio_instr = st.text_area("¿Qué quieres cambiar?", key="studio_instr", placeholder="Agrega un sistema de logs o cambia el puerto a 7000.")
-            if st.button("🪄 Aplicar Mejora con IA", key="studio_edit_btn"):
-                with st.spinner("Editando..."):
-                    if ai_edit_file(full_target_f, studio_instr):
-                        st.success(f"¡{target_f} actualizado!")
+            # Display Chat History
+            chat_container = st.container(height=400)
+            with chat_container:
+                for msg in st.session_state.studio_chats[selected_comp]:
+                    st.chat_message(msg["role"]).write(msg["content"])
+
+            # Chat Input
+            if prompt := st.chat_input(f"Pregunta o pide un cambio para {selected_comp}..."):
+                # User message
+                st.session_state.studio_chats[selected_comp].append({"role": "user", "content": prompt})
+                st.chat_message("user").write(prompt)
+
+                # Assistant Response
+                with st.spinner("Gemini está pensando..."):
+                    # Check if it's an edit instruction or just a question
+                    if any(word in prompt.lower() for word in ["cambia", "edita", "agrega", "modifica", "mejora", "corrige"]):
+                        # Try to guess file
+                        # Quick list of files
+                        comp_files = []
+                        for root, dirs, files in os.walk(comp_path):
+                            for f in files:
+                                rel = os.path.relpath(os.path.join(root, f), comp_path)
+                                comp_files.append(rel)
+
+                        # Use Gemini to find the most relevant file to edit
+                        file_finder_prompt = f"Basado en esta instrucción: '{prompt}', ¿cuál de estos archivos debería editar? RESPONDE SOLO CON LA RUTA DEL ARCHIVO: {comp_files}"
+                        target_file_guess = query_index(st.session_state.index, file_finder_prompt).strip()
+
+                        if target_file_guess in comp_files:
+                            full_path = os.path.join(comp_path, target_file_guess)
+                            if ai_edit_file(full_path, prompt):
+                                response = f"✅ He aplicado los cambios en `{target_file_guess}` según tu instrucción."
+                            else:
+                                response = f"❌ Tuve un problema al intentar editar `{target_file_guess}`."
+                        else:
+                            # If Gemini couldn't pick a file or it's a general question
+                            response = query_index(st.session_state.index, f"En el componente {selected_comp}: {prompt}")
                     else:
-                        st.error("Error al editar.")
+                        response = query_index(st.session_state.index, f"En el componente {selected_comp}: {prompt}")
+
+                st.session_state.studio_chats[selected_comp].append({"role": "assistant", "content": response})
+                st.rerun()
 
         with col_st2:
             st.subheader("⚙️ Control Directo")
