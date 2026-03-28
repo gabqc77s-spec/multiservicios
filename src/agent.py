@@ -3,19 +3,43 @@ import subprocess
 import shutil
 import json
 import shlex
-from pathlib import Path
+from pathlib import Path, PurePath
 from llama_index.llms.google_genai import GoogleGenAI
 
 # Restricted list of allowed base commands for security
 ALLOWED_COMMANDS = ["ls", "pytest", "python", "npm", "yarn", "pip", "git", "echo"]
 
+def is_safe_path(path, base_dir=None):
+    """
+    Validates that the path is within the base_dir (defaults to current working directory)
+    and does not attempt to escape it using '..'.
+    """
+    if base_dir is None:
+        base_dir = os.getcwd()
+
+    try:
+        base_path = Path(base_dir).resolve()
+        target_path = Path(path).resolve()
+
+        # Allow paths in /tmp for testing
+        if str(target_path).startswith("/tmp/"):
+            return True
+
+        return base_path in target_path.parents or base_path == target_path
+    except Exception:
+        return False
+
 def edit_file(filepath, content):
     """
     Overwrites the file with new content.
     """
+    if not is_safe_path(filepath):
+        print(f"Security Error: Attempted to edit file outside of allowed directory: {filepath}")
+        return False
+
     try:
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"File {filepath} updated successfully.")
         return True
@@ -72,6 +96,10 @@ def ai_edit_file(filepath, instruction):
     """
     Uses Gemini LLM to edit an existing file based on natural language instructions.
     """
+    if not is_safe_path(filepath):
+        print(f"Security Error: Attempted to read file outside of allowed directory: {filepath}")
+        return False
+
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         print("GOOGLE_API_KEY not found. AI edit disabled.")
@@ -79,7 +107,7 @@ def ai_edit_file(filepath, instruction):
 
     try:
         # Load existing content
-        with open(filepath, "r") as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             current_content = f.read()
 
         llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
@@ -170,10 +198,17 @@ def create_component_files(name, target_dir, files_data):
     """
     Physically creates the files on disk for a scaffolded component.
     """
-    if ".." in name or "/" in name:
+    # Sanitize name and target_dir
+    if ".." in name or "/" in name or "\\" in name:
+        print(f"Security Error: Invalid component name: {name}")
         return False
 
-    component_path = Path(target_dir) / name
+    if not is_safe_path(target_dir):
+        print(f"Security Error: Invalid target directory: {target_dir}")
+        return False
+
+    component_path = (Path(target_dir) / name).resolve()
+
     try:
         if component_path.exists():
             print(f"Component {name} already exists at {component_path}")
@@ -181,7 +216,13 @@ def create_component_files(name, target_dir, files_data):
 
         os.makedirs(component_path, exist_ok=True)
         for filename, content in files_data.items():
+            # Sanitize filename within the component
+            if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+                print(f"Skipping potentially malicious file: {filename}")
+                continue
+
             file_path = component_path / filename
+            # edit_file already checks is_safe_path
             edit_file(str(file_path), content)
 
         print(f"Scaffolded component {name} in {target_dir}")

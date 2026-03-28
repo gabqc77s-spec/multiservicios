@@ -2,6 +2,7 @@ import os
 import json
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Settings
 from llama_index.core.schema import TextNode
+from llama_index.core.llms import ChatMessage
 from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 
@@ -28,9 +29,10 @@ def configure_gemini():
             print(f"Error configuring Gemini: {e}")
     return False
 
-def create_or_load_index(data_dir="."):
+def create_or_load_index(data_dir=".", force_refresh=False):
     """
     Creates a new index from the data directory or loads it from the storage if it exists.
+    If force_refresh is True, it re-scans the directory and updates the index.
     """
     configure_gemini()
 
@@ -38,7 +40,7 @@ def create_or_load_index(data_dir="."):
         os.makedirs(INDEX_DIR)
 
     index = None
-    if not os.listdir(INDEX_DIR) or not os.path.exists(os.path.join(INDEX_DIR, "docstore.json")):
+    if force_refresh or not os.listdir(INDEX_DIR) or not os.path.exists(os.path.join(INDEX_DIR, "docstore.json")):
         try:
             # Excluir archivos grandes y binarios para evitar congelamiento
             reader = SimpleDirectoryReader(
@@ -73,9 +75,10 @@ def create_or_load_index(data_dir="."):
 
     return index
 
-def get_chat_engine(index, system_prompt=None):
+def get_chat_engine(index, system_prompt=None, chat_history_dicts=None):
     """
     Returns a persistent Chat Engine with context from the index.
+    Can restore chat history from a list of dictionary objects.
     """
     if not index:
         return None
@@ -88,9 +91,15 @@ def get_chat_engine(index, system_prompt=None):
             "analiza los archivos existentes antes de responder."
         )
 
+    chat_history = []
+    if chat_history_dicts:
+        for msg in chat_history_dicts:
+            chat_history.append(ChatMessage(role=msg["role"], content=msg["content"]))
+
     return index.as_chat_engine(
         chat_mode="context",
-        system_prompt=system_prompt
+        system_prompt=system_prompt,
+        chat_history=chat_history
     )
 
 def query_index(index, query_text):

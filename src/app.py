@@ -28,9 +28,19 @@ if "chat_engines" not in st.session_state:
 st.sidebar.title("🛠️ Monorepo Agent")
 st.sidebar.subheader("Project Structure")
 if st.sidebar.button("Scan Repository"):
-    st.session_state.graph = scan_directory()
-    save_graph(st.session_state.graph)
-    st.sidebar.success("Repo Rescanned")
+    with st.sidebar:
+        with st.spinner("Actualizando Mapa y Memoria de IA..."):
+            # 1. Update visual graph
+            st.session_state.graph = scan_directory()
+            save_graph(st.session_state.graph)
+
+            # 2. Force index refresh for AI Memory (RAG)
+            st.session_state.index = create_or_load_index(force_refresh=True)
+
+            # 3. Clear chat engines to pick up new context
+            st.session_state.chat_engines = {}
+
+            st.success("Mapa y Memoria IA actualizados.")
 
 # Status check for AI
 google_api_key = os.environ.get("GOOGLE_API_KEY")
@@ -111,6 +121,8 @@ with tab3:
                     if ai_edit_file(ai_target, ai_instruction):
                         st.success(f"Archivo {ai_target} editado con éxito.")
                         st.session_state.graph = scan_directory()
+                        st.session_state.index = create_or_load_index(force_refresh=True)
+                        st.session_state.chat_engines = {}
                     else:
                         st.error(f"Error al editar {ai_target}.")
             else:
@@ -125,6 +137,8 @@ with tab3:
                 if edit_file(target_file, new_content):
                     st.success(f"Actualizado {target_file}")
                     st.session_state.graph = scan_directory()
+                    st.session_state.index = create_or_load_index(force_refresh=True)
+                    st.session_state.chat_engines = {}
                 else:
                     st.error(f"Error al actualizar {target_file}")
 
@@ -155,6 +169,8 @@ with tab3:
                     if scaffold_component(sc_name, sc_dir, sc_desc):
                         st.success(f"Componente {sc_name} creado con éxito en {sc_dir}/")
                         st.session_state.graph = scan_directory()
+                        st.session_state.index = create_or_load_index(force_refresh=True)
+                        st.session_state.chat_engines = {}
                         # Initialize Studio Chat for this new component
                         intro_prompt = "Explica brevemente qué archivos creaste y qué hace cada uno. También indica cómo se debe inicializar y qué dependencias tiene."
                         intro_res = query_index(st.session_state.index, f"En el nuevo componente {sc_name}: {intro_prompt}")
@@ -266,7 +282,8 @@ with tab5:
             if prompt := st.chat_input(f"Pregunta o pide un cambio para {selected_comp}..."):
                 # Initialize ChatEngine if not exists for this component
                 if selected_comp not in st.session_state.chat_engines:
-                    st.session_state.chat_engines[selected_comp] = get_chat_engine(st.session_state.index)
+                    history = st.session_state.studio_chats.get(selected_comp, [])
+                    st.session_state.chat_engines[selected_comp] = get_chat_engine(st.session_state.index, chat_history_dicts=history)
 
                 # User message
                 st.session_state.studio_chats[selected_comp].append({"role": "user", "content": prompt})
@@ -287,6 +304,12 @@ with tab5:
                             full_path = os.path.join(comp_path, target_file_guess)
                             if ai_edit_file(full_path, prompt):
                                 response = f"✅ He aplicado los cambios en `{target_file_guess}` según tu instrucción."
+                                st.session_state.index = create_or_load_index(force_refresh=True)
+                                # Re-initialize chat engine to pick up new file content
+                                st.session_state.chat_engines[selected_comp] = get_chat_engine(
+                                    st.session_state.index,
+                                    chat_history_dicts=st.session_state.studio_chats[selected_comp]
+                                )
                             else:
                                 response = f"❌ Tuve un problema al intentar editar `{target_file_guess}`."
                         else:
