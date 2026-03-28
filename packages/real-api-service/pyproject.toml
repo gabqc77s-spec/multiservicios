@@ -1,0 +1,24 @@
+[project]
+name = "real-api-service"
+version = "0.1.0"
+description = "A simple FastAPI microservice for user management."
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+dependencies = [
+    "fastapi==0.111.0",
+    "uvicorn[standard]==0.30.1",
+    "pydantic==2.7.4",
+]
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[tool.uvicorn.run]
+app = "main:app"
+host = "0.0.0.0"
+port = 8000
+reload = false # Set to true for local development, false for production
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
