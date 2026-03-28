@@ -73,7 +73,30 @@ def create_or_load_index(data_dir="."):
 
     return index
 
+def get_chat_engine(index, system_prompt=None):
+    """
+    Returns a persistent Chat Engine with context from the index.
+    """
+    if not index:
+        return None
+
+    if not system_prompt:
+        system_prompt = (
+            "Eres un Ingeniero de Software Senior en un entorno de monorepo. "
+            "HABLA SIEMPRE EN ESPAÑOL. Mantén el contexto de la conversación actual "
+            "y utiliza el código del proyecto como referencia. Si te piden un cambio, "
+            "analiza los archivos existentes antes de responder."
+        )
+
+    return index.as_chat_engine(
+        chat_mode="context",
+        system_prompt=system_prompt
+    )
+
 def query_index(index, query_text):
+    """
+    Legacy query function for non-chat interactions.
+    """
     if not index:
         return "Index is not initialized. Please check your API keys and try again."
     try:

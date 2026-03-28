@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 from scanner import scan_directory, save_graph
-from brain import create_or_load_index, query_index
+from brain import create_or_load_index, query_index, get_chat_engine
 from agent import edit_file, ai_edit_file, run_command, scaffold_component
 from orchestrator import ProcessManager
 from pyvis.network import Network
@@ -21,6 +21,8 @@ if "index" not in st.session_state:
     st.session_state.index = create_or_load_index()
 if "studio_chats" not in st.session_state:
     st.session_state.studio_chats = {} # component_name: [messages]
+if "chat_engines" not in st.session_state:
+    st.session_state.chat_engines = {} # component_name: ChatEngine
 
 # Sidebar - Project Navigation
 st.sidebar.title("🛠️ Monorepo Agent")
@@ -262,13 +264,20 @@ with tab5:
 
             # Chat Input
             if prompt := st.chat_input(f"Pregunta o pide un cambio para {selected_comp}..."):
+                # Initialize ChatEngine if not exists for this component
+                if selected_comp not in st.session_state.chat_engines:
+                    st.session_state.chat_engines[selected_comp] = get_chat_engine(st.session_state.index)
+
                 # User message
                 st.session_state.studio_chats[selected_comp].append({"role": "user", "content": prompt})
                 st.chat_message("user").write(prompt)
 
                 # Assistant Response
                 with st.spinner("Gemini está pensando..."):
-                    # Check if it's an edit instruction or just a question
+                    # Use the REAL chat engine with memory
+                    chat_engine = st.session_state.chat_engines[selected_comp]
+
+                    # Check if it's an edit instruction
                     if any(word in prompt.lower() for word in ["cambia", "edita", "agrega", "modifica", "mejora", "corrige"]):
                         # Use Gemini to find the most relevant file to edit
                         file_finder_prompt = f"Basado en esta instrucción: '{prompt}', ¿cuál de estos archivos debería editar? RESPONDE SOLO CON LA RUTA DEL ARCHIVO: {comp_files}"
@@ -281,10 +290,13 @@ with tab5:
                             else:
                                 response = f"❌ Tuve un problema al intentar editar `{target_file_guess}`."
                         else:
-                            # If Gemini couldn't pick a file or it's a general question
-                            response = query_index(st.session_state.index, f"En el componente {selected_comp}: {prompt}")
+                            # Use chat engine for response
+                            chat_res = chat_engine.chat(prompt)
+                            response = str(chat_res)
                     else:
-                        response = query_index(st.session_state.index, f"En el componente {selected_comp}: {prompt}")
+                        # Use chat engine for response
+                        chat_res = chat_engine.chat(prompt)
+                        response = str(chat_res)
 
                 st.session_state.studio_chats[selected_comp].append({"role": "assistant", "content": response})
                 st.rerun()

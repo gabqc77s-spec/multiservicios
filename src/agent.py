@@ -147,12 +147,19 @@ def scaffold_component(name, target_dir, prompt):
         response = llm.complete(f"{system_prompt}\n\n{user_prompt}")
 
         response_text = response.text.strip()
-        if response_text.startswith("```json"):
-            response_text = response_text.replace("```json", "").replace("```", "").strip()
-        elif response_text.startswith("```"):
-            response_text = response_text.replace("```", "").strip()
 
-        files_data = json.loads(response_text)
+        # Robust JSON extraction for scaffolding
+        # Find the first { and the last } in the text
+        start_idx = response_text.find('{')
+        end_idx = response_text.rfind('}')
+
+        if start_idx != -1 and end_idx != -1:
+            json_block = response_text[start_idx:end_idx+1]
+            files_data = json.loads(json_block)
+        else:
+            # Fallback if no JSON-like structure is found
+            print(f"Failed to find JSON block in Gemini response: {response_text[:100]}...")
+            return False
         return create_component_files(name, target_dir, files_data)
 
     except Exception as e:
