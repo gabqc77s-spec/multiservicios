@@ -3,7 +3,7 @@ import json
 import os
 from scanner import scan_directory, save_graph
 from brain import create_or_load_index, query_index
-from agent import edit_file, run_command
+from agent import edit_file, run_command, scaffold_component
 from orchestrator import ProcessManager
 from pyvis.network import Network
 import streamlit.components.v1 as components
@@ -27,6 +27,13 @@ if st.sidebar.button("Scan Repository"):
     save_graph(st.session_state.graph)
     st.sidebar.success("Repo Rescanned")
 
+# Status check for AI
+google_api_key = os.environ.get("GOOGLE_API_KEY")
+if not google_api_key:
+    st.sidebar.warning("⚠️ GOOGLE_API_KEY not found. AI features running in mock mode.")
+else:
+    st.sidebar.success("✅ Gemini AI Connected")
+
 # Main Interface Tabs
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Graph Map", "🧠 RAG Intelligence", "🤖 Agent Action", "⚙️ Process Control"])
 
@@ -34,35 +41,51 @@ tab1, tab2, tab3, tab4 = st.tabs(["📊 Graph Map", "🧠 RAG Intelligence", "�
 with tab1:
     st.header("Project Gene Map")
 
-    # Create pyvis network - using CDN for resources to avoid local path issues in iframe
-    net = Network(height='500px', width='100%', bgcolor='#222222', font_color='white')
+    if st.session_state.graph.get("nodes"):
+        try:
+            # Create network
+            net = Network(height='500px', width='100%', bgcolor='#222222', font_color='white', notebook=False)
 
-    for node in st.session_state.graph["nodes"]:
-        color = "#ff4b4b" if node["type"] == "directory" else "#4bafff"
-        net.add_node(node["id"], label=node["id"], color=color)
+            for node in st.session_state.graph["nodes"]:
+                color = "#ff4b4b" if node["type"] == "directory" else "#4bafff"
+                net.add_node(node["id"], label=node["id"], color=color, shape="dot", size=15)
 
-    for edge in st.session_state.graph["edges"]:
-        net.add_edge(edge["from"], edge["to"])
+            for edge in st.session_state.graph["edges"]:
+                net.add_edge(edge["from"], edge["to"])
 
-    # Generate HTML string with CDN resources
-    html_content = net.generate_html()
+            net.toggle_physics(True)
 
-    # Replace local paths with CDNs if pyvis didn't do it (it usually does by default or has options)
-    # For extra safety, we ensure it's a standalone HTML
-    components.html(html_content, height=550, scrolling=True)
+            # Generate HTML with CDN links
+            # We explicitly replace any local script paths if they exist, though pyvis usually uses CDN
+            html_content = net.generate_html()
+
+            # Inject a small script to ensure vis-network is loaded from CDN if missing
+            if 'https://unpkg.com/vis-network' not in html_content:
+                html_content = html_content.replace(
+                    '<head>',
+                    '<head><script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>'
+                )
+
+            components.html(html_content, height=600, scrolling=True)
+            st.info("💡 Puedes interactuar con el mapa (arrastrar y hacer zoom).")
+        except Exception as e:
+            st.error(f"Error al generar el mapa: {e}")
+    else:
+        st.warning("No se encontró estructura del proyecto. Usa 'Scan Repository'.")
 
 # TAB 2: Semantic Search (RAG)
 with tab2:
     st.header("Contextual Intelligence (RAG)")
-    st.info("Note: Full RAG requires a valid OPENAI_API_KEY environment variable.")
-    query = st.text_input("Ask about the codebase:", placeholder="Where is the file editing logic?")
-    if st.button("Query"):
+    if not google_api_key:
+        st.info("Usando indexación por defecto. Conecta Gemini para razonamiento avanzado.")
+    query = st.text_input("Pregunta sobre el código:", key="rag_query", placeholder="¿Dónde está la lógica de edición de archivos?")
+    if st.button("Consultar", key="rag_btn"):
         if query:
-            with st.spinner("Searching..."):
+            with st.spinner("Gemini está pensando..."):
                 response = query_index(st.session_state.index, query)
-                st.write(f"**Answer:** {response}")
+                st.markdown(f"**Respuesta:**\n{response}")
         else:
-            st.warning("Please enter a query.")
+            st.warning("Por favor ingresa una consulta.")
 
 # TAB 3: Agentic Execution
 with tab3:
@@ -70,55 +93,72 @@ with tab3:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Edit File")
-        target_file = st.text_input("File path:", placeholder="src/example.py")
-        new_content = st.text_area("New content:")
-        if st.button("Apply Edit"):
+        st.subheader("Editar Archivo")
+        target_file = st.text_input("Ruta del archivo:", key="edit_path", placeholder="src/example.py")
+        new_content = st.text_area("Nuevo contenido:", key="edit_content")
+        if st.button("Aplicar Edición"):
             if target_file and new_content:
                 if edit_file(target_file, new_content):
-                    st.success(f"Updated {target_file}")
+                    st.success(f"Actualizado {target_file}")
+                    st.session_state.graph = scan_directory()
                 else:
-                    st.error(f"Failed to update {target_file}")
+                    st.error(f"Error al actualizar {target_file}")
 
     with col2:
-        st.subheader("Run Console Command")
-        command = st.text_input("Command:", placeholder="pytest tests/test_scanner.py")
-        if st.button("Execute"):
-            with st.spinner("Running..."):
+        st.subheader("Ejecutar Comando de Consola")
+        command = st.text_input("Comando:", key="run_cmd", placeholder="pytest tests/test_scanner.py")
+        if st.button("Ejecutar", key="exec_btn"):
+            with st.spinner("Ejecutando..."):
                 result = run_command(command)
-                st.code(f"Exit code: {result['returncode']}")
+                st.code(f"Código de salida: {result['returncode']}")
                 if result["stdout"]:
-                    st.text_area("STDOUT:", result["stdout"], height=200)
+                    st.text_area("STDOUT:", result["stdout"], height=200, key="stdout_out")
                 if result["stderr"]:
                     st.error("STDERR:")
                     st.text(result["stderr"])
 
+    st.divider()
+    st.subheader("🚀 Crear Componente con IA (Scaffolding)")
+    sc_name = st.text_input("Nombre del Componente:", key="sc_name", placeholder="mi-nuevo-servicio")
+    sc_dir = st.text_input("Directorio Destino:", key="sc_dir", value="packages")
+    sc_desc = st.text_area("Descripción (Prompt para IA):", key="sc_desc", placeholder="Un backend Python FastAPI con un endpoint básico.")
+
+    if st.button("Crear Componente", key="sc_btn"):
+        if sc_name and sc_dir and sc_desc:
+            with st.spinner(f"Gemini está generando {sc_name}..."):
+                if scaffold_component(sc_name, sc_dir, sc_desc):
+                    st.success(f"Componente {sc_name} creado con éxito en {sc_dir}/")
+                    st.session_state.graph = scan_directory()
+                else:
+                    st.error("Error al crear el componente. Revisa el nombre o la API Key.")
+        else:
+            st.warning("Por favor completa todos los campos.")
+
 # TAB 4: Process Management
 with tab4:
     st.header("Local Process Orchestrator")
-
     col_s1, col_s2 = st.columns([3, 1])
     with col_s1:
-        s_name = st.text_input("Service Name:", placeholder="backend-api")
-        s_cmd = st.text_input("Launch Command:", placeholder="python -m http.server 8000")
+        s_name = st.text_input("Nombre del Servicio:", key="srv_name", placeholder="backend-api")
+        s_cmd = st.text_input("Comando de Inicio:", key="srv_cmd", placeholder="python -m http.server 8000")
     with col_s2:
         st.write("")
         st.write("")
-        if st.button("🚀 Start Service"):
+        if st.button("🚀 Iniciar Servicio", key="srv_start"):
             if s_name and s_cmd:
                 if st.session_state.manager.start_service(s_name, s_cmd):
-                    st.success(f"{s_name} started.")
+                    st.success(f"Servicio {s_name} iniciado.")
                 else:
-                    st.error("Failed to start service.")
+                    st.error("Error al iniciar el servicio.")
 
-    st.subheader("Running Services")
+    st.subheader("Servicios en Ejecución")
     status = st.session_state.manager.get_status()
     if status:
         for name, state in status.items():
             col_a, col_b = st.columns([4, 1])
             col_a.write(f"**{name}**: {state}")
-            if col_b.button(f"Stop {name}", key=name):
+            if col_b.button(f"Detener {name}", key=f"stop_{name}"):
                 st.session_state.manager.stop_service(name)
                 st.rerun()
     else:
-        st.info("No services running.")
+        st.info("No hay servicios en ejecución.")
