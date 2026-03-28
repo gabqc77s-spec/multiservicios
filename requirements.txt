@@ -1,0 +1,6 @@
+streamlit
+llama-index
+pyvis
+networkx
+python-dotenv
+pytest
