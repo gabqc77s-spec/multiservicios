@@ -3,6 +3,7 @@ import os
 import time
 import signal
 import sys
+import shlex
 
 class ProcessManager:
     """
@@ -15,9 +16,15 @@ class ProcessManager:
     def start_service(self, name, command, cwd="."):
         """
         Starts a service as a background process and keeps track of its PID.
+        Safe execution without shell=True.
         """
         print(f"Starting service {name}: {command}")
         try:
+            # Split command safely
+            args = shlex.split(command)
+            if not args:
+                return False
+
             # Open a log file for each process to capture output
             log_file = open(f"{name}_output.log", "w")
 
@@ -29,8 +36,8 @@ class ProcessManager:
                 kwargs.update(creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
 
             process = subprocess.Popen(
-                command,
-                shell=True, # Shell is usually needed for background services/pipelines
+                args,
+                shell=False,
                 cwd=cwd,
                 stdout=log_file,
                 stderr=log_file,
@@ -91,7 +98,8 @@ class ProcessManager:
 if __name__ == "__main__":
     # Test orchestrator
     manager = ProcessManager()
-    manager.start_service("ping-test", "ping -c 4 127.0.0.1")
+    # Use a safe command for testing
+    manager.start_service("test-service", "ls -la")
     time.sleep(2)
     print(manager.get_status())
     time.sleep(3)
