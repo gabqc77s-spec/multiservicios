@@ -2,10 +2,11 @@ import os
 import subprocess
 import shutil
 import json
+import shlex
 from pathlib import Path
-from llama_index.llms.gemini import Gemini
+from llama_index.llms.google_genai import GoogleGenAI
 
-# Restricted list of allowed commands for security
+# Restricted list of allowed base commands for security
 ALLOWED_COMMANDS = ["ls", "pytest", "python", "npm", "yarn", "pip", "git", "echo"]
 
 def edit_file(filepath, content):
@@ -24,24 +25,29 @@ def edit_file(filepath, content):
 
 def run_command(command, cwd="."):
     """
-    Executes a shell command and returns the output and exit code.
-    Includes basic security checks.
+    Executes a shell command safely without shell=True.
+    Includes base command validation.
     """
     if not command:
         return {"stdout": "", "stderr": "No command provided", "returncode": -1}
 
-    base_cmd = command.split()[0]
-    if base_cmd not in ALLOWED_COMMANDS:
-        return {
-            "stdout": "",
-            "stderr": f"Security Error: Command '{base_cmd}' is not in the allowed list: {ALLOWED_COMMANDS}",
-            "returncode": -1
-        }
-
     try:
+        # Split command into a list of arguments safely
+        args = shlex.split(command)
+        if not args:
+             return {"stdout": "", "stderr": "Invalid command", "returncode": -1}
+
+        base_cmd = args[0]
+        if base_cmd not in ALLOWED_COMMANDS:
+            return {
+                "stdout": "",
+                "stderr": f"Security Error: Command '{base_cmd}' is not in the allowed list: {ALLOWED_COMMANDS}",
+                "returncode": -1
+            }
+
+        # Execute without shell=True to prevent command injection
         result = subprocess.run(
-            command,
-            shell=True,
+            args,
             capture_output=True,
             text=True,
             cwd=cwd
@@ -72,7 +78,8 @@ def scaffold_component(name, target_dir, prompt):
         return create_component_files(name, target_dir, mock_files)
 
     try:
-        llm = Gemini(model="models/gemini-2.0-flash", api_key=api_key)
+        # Use gemini-2.5-flash as requested by user
+        llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
 
         system_prompt = """
         You are a monorepo component scaffolder.
@@ -88,7 +95,6 @@ def scaffold_component(name, target_dir, prompt):
 
         response = llm.complete(f"{system_prompt}\n\n{user_prompt}")
 
-        # Extract JSON from response (handling potential markdown blocks if LLM ignores instructions)
         response_text = response.text.strip()
         if response_text.startswith("```json"):
             response_text = response_text.replace("```json", "").replace("```", "").strip()

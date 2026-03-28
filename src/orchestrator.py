@@ -2,6 +2,7 @@ import subprocess
 import os
 import time
 import signal
+import sys
 
 class ProcessManager:
     """
@@ -20,13 +21,20 @@ class ProcessManager:
             # Open a log file for each process to capture output
             log_file = open(f"{name}_output.log", "w")
 
+            # Cross-platform process group creation
+            kwargs = {}
+            if sys.platform != 'win32':
+                kwargs.update(preexec_fn=os.setsid)
+            else:
+                kwargs.update(creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+
             process = subprocess.Popen(
                 command,
-                shell=True,
+                shell=True, # Shell is usually needed for background services/pipelines
                 cwd=cwd,
                 stdout=log_file,
                 stderr=log_file,
-                preexec_fn=os.setsid # allows to kill process groups
+                **kwargs
             )
 
             self.processes[name] = {
@@ -50,17 +58,20 @@ class ProcessManager:
             print(f"Stopping service {name}")
 
             try:
-                # Terminate the entire process group
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                if sys.platform != 'win32':
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                else:
+                    os.kill(process.pid, signal.CTRL_BREAK_EVENT)
+
                 process.wait(timeout=5)
                 self.processes[name]["status"] = "stopped"
                 print(f"Service {name} stopped.")
                 return True
             except Exception as e:
                 print(f"Error stopping service {name}: {e}")
-                # Force kill if necessary
+                # Force kill
                 try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    process.kill()
                     self.processes[name]["status"] = "terminated"
                     return True
                 except:

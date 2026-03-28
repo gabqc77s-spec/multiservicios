@@ -2,27 +2,27 @@ import os
 import json
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Settings
 from llama_index.core.schema import TextNode
-from llama_index.llms.gemini import Gemini
-from llama_index.embeddings.gemini import GeminiEmbedding
+from llama_index.llms.google_genai import GoogleGenAI
+from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 
 INDEX_DIR = ".brain"
 
 def configure_gemini():
     """
     Configures Settings with Gemini LLM and Embeddings if API key is present.
+    Using latest llama-index-llms-google-genai.
     """
     api_key = os.environ.get("GOOGLE_API_KEY")
     if api_key:
         try:
-            # Using gemini-2.0-flash as per typical current naming,
-            # though user mentioned gemini-2.5-flash which might be a typo or very new.
-            # We will use what is likely available.
-            llm = Gemini(model="models/gemini-2.0-flash", api_key=api_key)
-            embed_model = GeminiEmbedding(model_name="models/text-embedding-004", api_key=api_key)
+            # Using models/gemini-2.5-flash as requested by user
+            llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
+            # Using gemini-embedding-001 as text-embedding-004 is not available for this key/region
+            embed_model = GoogleGenAIEmbedding(model_name="models/gemini-embedding-001", api_key=api_key)
 
             Settings.llm = llm
             Settings.embed_model = embed_model
-            print("Gemini configured for RAG.")
+            print("Gemini 2.5 Flash configured for RAG (Google GenAI).")
             return True
         except Exception as e:
             print(f"Error configuring Gemini: {e}")
@@ -40,8 +40,6 @@ def create_or_load_index(data_dir="."):
     index = None
     if not os.listdir(INDEX_DIR) or not os.path.exists(os.path.join(INDEX_DIR, "docstore.json")):
         try:
-            # If no API key, LlamaIndex might fail on default OpenAI models.
-            # SimpleDirectoryReader to get docs
             reader = SimpleDirectoryReader(
                 input_dir=data_dir,
                 recursive=True,
@@ -55,13 +53,11 @@ def create_or_load_index(data_dir="."):
             index.storage_context.persist(persist_dir=INDEX_DIR)
             print("Index created and persisted to .brain")
 
-            # Metadata for our app
             with open(os.path.join(INDEX_DIR, "index_status.json"), "w") as f:
-                json.dump({"status": "indexed", "engine": "gemini" if os.environ.get("GOOGLE_API_KEY") else "default"}, f)
+                json.dump({"status": "indexed", "engine": "gemini-2.5"}, f)
 
         except Exception as e:
             print(f"Failed to create index: {e}")
-            # Fallback to placeholder if everything fails
             if not os.path.exists(os.path.join(INDEX_DIR, "index_status.json")):
                 with open(os.path.join(INDEX_DIR, "index_status.json"), "w") as f:
                     json.dump({"status": "placeholder"}, f)
