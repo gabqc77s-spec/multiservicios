@@ -4,3 +4,5 @@ pyvis
 networkx
 python-dotenv
 pytest
+flask
+requests
