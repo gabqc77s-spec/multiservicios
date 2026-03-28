@@ -78,9 +78,10 @@ with tab1:
 # TAB 2: Semantic Search (RAG)
 with tab2:
     st.header("Contextual Intelligence (RAG)")
+    st.info("💡 **Uso:** Haz preguntas abiertas sobre cualquier parte del proyecto. Gemini buscará automáticamente en todos tus archivos sin que tengas que especificar rutas.")
     if not google_api_key:
-        st.info("Usando indexación por defecto. Conecta Gemini para razonamiento avanzado.")
-    query = st.text_input("Pregunta sobre el código:", key="rag_query", placeholder="¿Dónde está la lógica de edición de archivos?")
+        st.warning("Conecta Gemini para habilitar el razonamiento avanzado sobre el código.")
+    query = st.text_input("Pregunta sobre el código:", key="rag_query", placeholder="Ej: ¿Cómo funciona el orquestador? o ¿Dónde se definen las rutas del API?")
     if st.button("Consultar", key="rag_btn"):
         if query:
             with st.spinner("Gemini está pensando..."):
@@ -96,6 +97,7 @@ with tab3:
 
     with col1:
         st.subheader("Editar Archivo con IA (Gemini)")
+        st.caption("💡 **Uso:** Indica el archivo específico que deseas mejorar y dale una instrucción clara.")
         ai_target = st.text_input("Ruta del archivo a editar:", key="ai_edit_path", placeholder="packages/mi-servicio/main.py")
         ai_instruction = st.text_area("Instrucción para la IA:", key="ai_instruction", placeholder="Agrega un endpoint de suma que acepte a y b.")
         if st.button("🪄 Editar con IA"):
