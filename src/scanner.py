@@ -12,13 +12,14 @@ def scan_directory(root_path="."):
         "edges": []
     }
 
-    exclude_dirs = {".git", "node_modules", "venv", ".brain", "__pycache__"}
+    exclude_dirs = {".git", "node_modules", "venv", ".brain", "__pycache__", ".pytest_cache", ".vscode", "dist", "build"}
 
     root = Path(root_path).resolve()
 
     for current_path, dirs, files in os.walk(root):
         # Filter directories to avoid scanning excluded ones deeply
-        dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        # Also ignore hidden folders starting with a dot
+        dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith(".")]
 
         rel_current = os.path.relpath(current_path, root)
         if rel_current == ".":
