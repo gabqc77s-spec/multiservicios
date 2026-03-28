@@ -54,6 +54,8 @@ with tab1:
                 net.add_edge(edge["from"], edge["to"])
 
             net.toggle_physics(True)
+            # Desactivar improvedLayout para evitar advertencias en la consola y mejorar rendimiento
+            net.set_options('{"layout": {"improvedLayout": false}}')
 
             # Generate HTML with CDN links
             # We explicitly replace any local script paths if they exist, though pyvis usually uses CDN
