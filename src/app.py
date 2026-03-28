@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import os
+from pathlib import Path
 from scanner import scan_directory, save_graph
 from brain import create_or_load_index, query_index
 from agent import edit_file, ai_edit_file, run_command, scaffold_component
@@ -235,6 +236,13 @@ with tab5:
         selected_comp = st.selectbox("Selecciona un componente para trabajar:", available_components)
         comp_path = os.path.join(packages_dir, selected_comp)
 
+        # Pre-calculate component files to avoid NameErrors in all scopes
+        comp_files = []
+        for root, dirs, files in os.walk(comp_path):
+            for f in files:
+                rel = os.path.relpath(os.path.join(root, f), comp_path)
+                comp_files.append(rel)
+
         col_st1, col_st2 = st.columns([2, 1])
 
         with col_st1:
@@ -262,14 +270,6 @@ with tab5:
                 with st.spinner("Gemini está pensando..."):
                     # Check if it's an edit instruction or just a question
                     if any(word in prompt.lower() for word in ["cambia", "edita", "agrega", "modifica", "mejora", "corrige"]):
-                        # Try to guess file
-                        # Quick list of files
-                        comp_files = []
-                        for root, dirs, files in os.walk(comp_path):
-                            for f in files:
-                                rel = os.path.relpath(os.path.join(root, f), comp_path)
-                                comp_files.append(rel)
-
                         # Use Gemini to find the most relevant file to edit
                         file_finder_prompt = f"Basado en esta instrucción: '{prompt}', ¿cuál de estos archivos debería editar? RESPONDE SOLO CON LA RUTA DEL ARCHIVO: {comp_files}"
                         target_file_guess = query_index(st.session_state.index, file_finder_prompt).strip()
