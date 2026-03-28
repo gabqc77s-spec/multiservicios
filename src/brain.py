@@ -40,10 +40,12 @@ def create_or_load_index(data_dir="."):
     index = None
     if not os.listdir(INDEX_DIR) or not os.path.exists(os.path.join(INDEX_DIR, "docstore.json")):
         try:
+            # Excluir archivos grandes y binarios para evitar congelamiento
             reader = SimpleDirectoryReader(
                 input_dir=data_dir,
                 recursive=True,
-                exclude_hidden=True
+                exclude_hidden=True,
+                required_exts=[".py", ".js", ".ts", ".html", ".css", ".md", ".json", ".txt", ".yml", ".yaml", ".dockerfile", "Dockerfile"]
             )
             documents = reader.load_data()
             if not documents:
