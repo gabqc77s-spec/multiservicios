@@ -3,7 +3,7 @@ import json
 import os
 from scanner import scan_directory, save_graph
 from brain import create_or_load_index, query_index
-from agent import edit_file, run_command, scaffold_component
+from agent import edit_file, ai_edit_file, run_command, scaffold_component
 from orchestrator import ProcessManager
 from pyvis.network import Network
 import streamlit.components.v1 as components
@@ -93,10 +93,25 @@ with tab3:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Editar Archivo")
-        target_file = st.text_input("Ruta del archivo:", key="edit_path", placeholder="src/example.py")
-        new_content = st.text_area("Nuevo contenido:", key="edit_content")
-        if st.button("Aplicar Edición"):
+        st.subheader("Editar Archivo con IA (Gemini)")
+        ai_target = st.text_input("Ruta del archivo a editar:", key="ai_edit_path", placeholder="packages/mi-servicio/main.py")
+        ai_instruction = st.text_area("Instrucción para la IA:", key="ai_instruction", placeholder="Agrega un endpoint de suma que acepte a y b.")
+        if st.button("🪄 Editar con IA"):
+            if ai_target and ai_instruction:
+                with st.spinner(f"Gemini está editando {ai_target}..."):
+                    if ai_edit_file(ai_target, ai_instruction):
+                        st.success(f"Archivo {ai_target} editado con éxito.")
+                        st.session_state.graph = scan_directory()
+                    else:
+                        st.error(f"Error al editar {ai_target}.")
+            else:
+                st.warning("Completa la ruta y la instrucción.")
+
+        st.divider()
+        st.subheader("Edición Manual")
+        target_file = st.text_input("Ruta (Manual):", key="edit_path", placeholder="src/example.py")
+        new_content = st.text_area("Nuevo contenido:", key="edit_content", height=200)
+        if st.button("Aplicar Edición Manual"):
             if target_file and new_content:
                 if edit_file(target_file, new_content):
                     st.success(f"Actualizado {target_file}")
