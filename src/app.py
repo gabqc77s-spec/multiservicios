@@ -35,7 +35,7 @@ else:
     st.sidebar.success("✅ Gemini AI Connected")
 
 # Main Interface Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Graph Map", "🧠 RAG Intelligence", "🤖 Agent Action", "⚙️ Process Control"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Graph Map", "🧠 RAG Intelligence", "🤖 Agent Action", "⚙️ Process Control", "🎨 Project Studio"])
 
 # TAB 1: Graph Visualization
 with tab1:
@@ -210,3 +210,90 @@ with tab4:
                 st.rerun()
     else:
         st.info("No hay servicios en ejecución.")
+
+# TAB 5: Project Studio (The iterative workbench)
+with tab5:
+    st.header("🎨 Project Studio: Desarrollo Persistente")
+    st.info("Aquí puedes trabajar en un componente específico de forma continua: preguntar, instalar, correr y mejorar.")
+
+    # 1. Component Selection
+    packages_dir = "packages"
+    if not os.path.exists(packages_dir):
+        os.makedirs(packages_dir)
+
+    available_components = [d for d in os.listdir(packages_dir) if os.path.isdir(os.path.join(packages_dir, d))]
+
+    if available_components:
+        selected_comp = st.selectbox("Selecciona un componente para trabajar:", available_components)
+        comp_path = os.path.join(packages_dir, selected_comp)
+
+        col_st1, col_st2 = st.columns([2, 1])
+
+        with col_st1:
+            st.subheader(f"📂 Archivos en {selected_comp}")
+            # Quick view of files in the component
+            comp_files = []
+            for root, dirs, files in os.walk(comp_path):
+                for f in files:
+                    rel = os.path.relpath(os.path.join(root, f), comp_path)
+                    comp_files.append(rel)
+            st.write(", ".join(comp_files))
+
+            # Integrated Chat for THIS component
+            st.divider()
+            st.subheader("💬 Preguntar sobre este componente")
+            comp_q = st.text_input("Duda:", key="comp_q", placeholder=f"¿Cómo inicializo {selected_comp}?")
+            if st.button("Consultar a Gemini", key="comp_q_btn"):
+                with st.spinner("Analizando componente..."):
+                    # Scope RAG to this component
+                    response = query_index(st.session_state.index, f"En el componente {selected_comp} ubicado en {comp_path}: {comp_q}")
+                    st.markdown(f"**Gemini:** {response}")
+
+            # Iterative AI Editing
+            st.divider()
+            st.subheader("🪄 Mejorar este componente")
+            target_f = st.selectbox("Archivo a editar:", comp_files, key="studio_file")
+            full_target_f = os.path.join(comp_path, target_f)
+            studio_instr = st.text_area("¿Qué quieres cambiar?", key="studio_instr", placeholder="Agrega un sistema de logs o cambia el puerto a 7000.")
+            if st.button("🪄 Aplicar Mejora con IA", key="studio_edit_btn"):
+                with st.spinner("Editando..."):
+                    if ai_edit_file(full_target_f, studio_instr):
+                        st.success(f"¡{target_f} actualizado!")
+                    else:
+                        st.error("Error al editar.")
+
+        with col_st2:
+            st.subheader("⚙️ Control Directo")
+
+            # Check for requirements.txt
+            req_exists = os.path.exists(os.path.join(comp_path, "requirements.txt"))
+            if req_exists:
+                if st.button("📦 Instalar Dependencias", key="studio_install", use_container_width=True):
+                    with st.spinner("Instalando..."):
+                        res = run_command(f"pip install -r {os.path.join(comp_path, 'requirements.txt')}")
+                        if res["returncode"] == 0: st.success("Instalado.")
+                        else: st.error("Error.")
+
+            # Start/Stop Logic
+            main_py = next((f for f in comp_files if f.endswith("main.py") or f.endswith("app.py")), None)
+            if main_py:
+                start_cmd = f"python {os.path.join(comp_path, main_py)}"
+                if st.button("🚀 Iniciar Servicio", key="studio_start", use_container_width=True):
+                    if st.session_state.manager.start_service(selected_comp, start_cmd):
+                        st.success(f"{selected_comp} iniciado.")
+
+                if st.button("🛑 Detener Servicio", key="studio_stop", use_container_width=True):
+                    if st.session_state.manager.stop_service(selected_comp):
+                        st.info(f"{selected_comp} detenido.")
+
+            st.divider()
+            st.subheader("📝 Guía del Componente")
+            readme_path = os.path.join(comp_path, "README.md")
+            if os.path.exists(readme_path):
+                with open(readme_path, "r") as f:
+                    st.markdown(f.read())
+            else:
+                st.write("No hay README.md.")
+
+    else:
+        st.warning("No se encontraron componentes en 'packages/'. Crea uno primero en la pestaña 'Agent Action'.")

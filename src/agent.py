@@ -32,6 +32,10 @@ def run_command(command, cwd="."):
         return {"stdout": "", "stderr": "No command provided", "returncode": -1}
 
     try:
+        # En Windows, shlex.split puede comerse las barras invertidas si no se escapan.
+        # Normalizamos a barras normales para evitar errores de ruta.
+        command = command.replace("\\", "/")
+
         # Split command into a list of arguments safely
         args = shlex.split(command)
         if not args:
