@@ -64,6 +64,53 @@ def run_command(command, cwd="."):
             "returncode": -1
         }
 
+def ai_edit_file(filepath, instruction):
+    """
+    Uses Gemini LLM to edit an existing file based on natural language instructions.
+    """
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        print("GOOGLE_API_KEY not found. AI edit disabled.")
+        return False
+
+    try:
+        # Load existing content
+        with open(filepath, "r") as f:
+            current_content = f.read()
+
+        llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
+
+        system_prompt = f"""
+        You are a senior software engineer.
+        Your task is to EDIT an existing file based on the user's instruction.
+        Return ONLY the full new content of the file.
+        Do not include markdown code blocks or explanations.
+
+        File to edit: {filepath}
+        Current content:
+        ---
+        {current_content}
+        ---
+        """
+
+        response = llm.complete(f"{system_prompt}\n\nInstruction: {instruction}")
+
+        new_content = response.text.strip()
+        if new_content.startswith("```"):
+            # Remove any markdown markers if the model included them
+            lines = new_content.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            new_content = "\n".join(lines).strip()
+
+        return edit_file(filepath, new_content)
+
+    except Exception as e:
+        print(f"Error editing file with Gemini: {e}")
+        return False
+
 def scaffold_component(name, target_dir, prompt):
     """
     Uses Gemini LLM to generate a real monorepo component with multiple files.
