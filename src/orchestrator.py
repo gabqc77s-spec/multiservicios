@@ -4,6 +4,8 @@ import time
 import signal
 import sys
 import shlex
+import socket
+import re
 
 class ProcessManager:
     """
@@ -55,6 +57,24 @@ class ProcessManager:
             print(f"Error starting service {name}: {e}")
             return False
 
+    def stop_all(self):
+        """
+        Stops all running services.
+        """
+        names = list(self.processes.keys())
+        for name in names:
+            self.stop_service(name)
+        return True
+
+    def start_all(self, services_config):
+        """
+        Starts multiple services from a configuration dictionary {name: command}.
+        """
+        results = {}
+        for name, cmd in services_config.items():
+            results[name] = self.start_service(name, cmd)
+        return results
+
     def stop_service(self, name):
         """
         Stops a running process using its PID.
@@ -84,6 +104,56 @@ class ProcessManager:
                 except:
                     return False
         return False
+
+    def check_port(self, port):
+        """
+        Checks if a local port is currently in use.
+        """
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                return s.connect_ex(('127.0.0.1', int(port))) == 0
+        except:
+            return False
+
+    def detect_ports(self, command):
+        """
+        Uses Regex to find potential port numbers in a command string.
+        """
+        # Look for patterns like :8000, port 8000, -p 8000, --port 8000, 0.0.0.0:8000, PORT=5000
+        patterns = [
+            r':(\d{4,5})',
+            r'port\s+(\d{4,5})',
+            r'-p\s+(\d{4,5})',
+            r'--port\s+(\d{4,5})',
+            r'\d+\.\d+\.\d+\.\d+:(\d{4,5})',
+            r'PORT=(\d{4,5})'
+        ]
+        ports = set()
+        for p in patterns:
+            found = re.findall(p, command)
+            for f in found:
+                ports.add(int(f))
+
+        # Also look for standalone numbers at the end of common server commands
+        if not ports:
+            standalone = re.search(r'\s+(\d{4,5})$', command)
+            if standalone:
+                ports.add(int(standalone.group(1)))
+
+        return list(ports)
+
+    def get_logs(self, name, tail=50):
+        """
+        Reads the last N lines from a service's log file.
+        """
+        if name in self.processes:
+            log_path = self.processes[name]["log_file"]
+            if os.path.exists(log_path):
+                with open(log_path, "r") as f:
+                    lines = f.readlines()
+                    return "".join(lines[-tail:])
+        return "Logs not found."
 
     def get_status(self):
         """
