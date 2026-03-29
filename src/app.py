@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from scanner import scan_directory, save_graph
 from brain import create_or_load_index, query_index, get_chat_engine
-from agent import edit_file, ai_edit_file, run_command, scaffold_component
+from agent import edit_file, ai_edit_file, run_command, scaffold_component, self_healing_execution, git_commit_changes
 from orchestrator import ProcessManager
 from pyvis.network import Network
 import streamlit.components.v1 as components
@@ -145,15 +145,40 @@ with tab3:
     with col2:
         st.subheader("Ejecutar Comando de Consola")
         command = st.text_input("Comando:", key="run_cmd", placeholder="pytest tests/test_scanner.py")
-        if st.button("Ejecutar", key="exec_btn"):
-            with st.spinner("Ejecutando..."):
-                result = run_command(command)
-                st.code(f"Código de salida: {result['returncode']}")
-                if result["stdout"]:
-                    st.text_area("STDOUT:", result["stdout"], height=200, key="stdout_out")
-                if result["stderr"]:
-                    st.error("STDERR:")
-                    st.text(result["stderr"])
+
+        col_ex1, col_ex2 = st.columns(2)
+        with col_ex1:
+            if st.button("Ejecutar Normal", key="exec_btn", use_container_width=True):
+                with st.spinner("Ejecutando..."):
+                    result = run_command(command)
+                    st.code(f"Código de salida: {result['returncode']}")
+                    if result["stdout"]:
+                        st.text_area("STDOUT:", result["stdout"], height=200, key="stdout_out")
+                    if result["stderr"]:
+                        st.error("STDERR:")
+                        st.text(result["stderr"])
+
+        with col_ex2:
+            sh_target = st.text_input("Archivo a curar (opcional):", key="sh_target", placeholder="src/main.py")
+            if st.button("🪄 Ejecutar con Autocuración", key="sh_btn", use_container_width=True):
+                if command:
+                    with st.spinner("Ejecutando con autocuración de IA..."):
+                        sh_res = self_healing_execution(command, filepath=sh_target)
+                        if sh_res["status"] == "success":
+                            st.success("✅ Comando exitoso tras curación.")
+                        else:
+                            st.error(f"❌ Falló tras {len(sh_res['history'])} reintentos.")
+
+                        st.code(f"Resultado final: {sh_res['result']['returncode']}")
+                        if sh_res["history"]:
+                            with st.expander("Ver historial de curación"):
+                                for h in sh_res["history"]:
+                                    st.write(h)
+
+                        if sh_res["result"]["stdout"]:
+                            st.text_area("STDOUT:", sh_res["result"]["stdout"], height=200, key="sh_stdout")
+                else:
+                    st.warning("Ingresa un comando.")
 
     st.divider()
     st.subheader("🚀 Crear Componente con IA (Scaffolding)")
@@ -183,6 +208,15 @@ with tab3:
                 st.warning("Por favor completa todos los campos.")
 
     with col_sc2:
+        if st.button("💾 Auto-Commit Cambios", key="git_commit_btn", use_container_width=True):
+            with st.spinner("Generando mensaje de commit con IA..."):
+                res = git_commit_changes()
+                if res["status"] == "success":
+                    st.success(f"Commit realizado: {res['message']}")
+                else:
+                    st.info(res["message"])
+
+        st.write("")
         if st.button("📦 Instalar Dependencias", key="install_deps_btn", use_container_width=True):
             if sc_name and sc_dir:
                 target_path = os.path.join(sc_dir, sc_name)
@@ -212,29 +246,69 @@ with tab3:
 # TAB 4: Process Management
 with tab4:
     st.header("Local Process Orchestrator")
-    col_s1, col_s2 = st.columns([3, 1])
+    col_s1, col_s2, col_s3 = st.columns([3, 3, 1])
     with col_s1:
         s_name = st.text_input("Nombre del Servicio:", key="srv_name", placeholder="backend-api")
-        s_cmd = st.text_input("Comando de Inicio:", key="srv_cmd", placeholder="python -m http.server 8000")
     with col_s2:
+        s_cmd = st.text_input("Comando de Inicio:", key="srv_cmd", placeholder="python -m http.server 8000")
+    with col_s3:
         st.write("")
         st.write("")
-        if st.button("🚀 Iniciar Servicio", key="srv_start"):
+        if st.button("🚀 Iniciar", key="srv_start", use_container_width=True):
             if s_name and s_cmd:
                 if st.session_state.manager.start_service(s_name, s_cmd):
-                    st.success(f"Servicio {s_name} iniciado.")
+                    st.success(f"{s_name} OK")
                 else:
-                    st.error("Error al iniciar el servicio.")
+                    st.error("Error")
 
     st.subheader("Servicios en Ejecución")
+    col_start1, col_start2, col_stop = st.columns([4, 1, 1])
+    with col_start2:
+        if st.button("🚀 Levantar Sistema", key="start_all_btn", use_container_width=True):
+            # Define services to start (usually those that are configured in packages)
+            packages_dir = "packages"
+            if os.path.exists(packages_dir):
+                for comp in os.listdir(packages_dir):
+                    comp_path = os.path.join(packages_dir, comp)
+                    if os.path.isdir(comp_path):
+                        main_py = next((f for f in os.listdir(comp_path) if f.endswith("main.py") or f.endswith("app.py")), None)
+                        if main_py:
+                            cmd = f"python3 {os.path.join(comp_path, main_py)}"
+                            st.session_state.manager.start_service(comp, cmd)
+            st.rerun()
+
+    with col_stop:
+        if st.button("🛑 Detener TODO", key="stop_all", use_container_width=True):
+            st.session_state.manager.stop_all()
+            st.rerun()
+
     status = st.session_state.manager.get_status()
     if status:
         for name, state in status.items():
-            col_a, col_b = st.columns([4, 1])
-            col_a.write(f"**{name}**: {state}")
-            if col_b.button(f"Detener {name}", key=f"stop_{name}"):
-                st.session_state.manager.stop_service(name)
-                st.rerun()
+            with st.container(border=True):
+                col_a, col_b, col_c = st.columns([3, 2, 1])
+                col_a.write(f"**{name}**")
+                col_a.caption(f"Status: {state}")
+
+                # Dynamic Port Check
+                cmd = st.session_state.manager.processes[name]["command"]
+                ports = st.session_state.manager.detect_ports(cmd)
+                if ports:
+                    p_status = []
+                    for p in ports:
+                        is_up = st.session_state.manager.check_port(p)
+                        icon = "✅" if is_up else "⏳"
+                        p_status.append(f"{icon} {p}")
+                    col_b.write(f"Puertos: {', '.join(p_status)}")
+
+                if col_c.button(f"🛑 Detener", key=f"stop_{name}", use_container_width=True):
+                    st.session_state.manager.stop_service(name)
+                    st.rerun()
+
+                # Logs
+                with st.expander(f"Ver Logs de {name}"):
+                    logs = st.session_state.manager.get_logs(name)
+                    st.code(logs)
     else:
         st.info("No hay servicios en ejecución.")
 
@@ -347,6 +421,17 @@ with tab5:
                 if st.button("🛑 Detener Servicio", key="studio_stop", use_container_width=True):
                     if st.session_state.manager.stop_service(selected_comp):
                         st.info(f"{selected_comp} detenido.")
+
+                st.divider()
+                if st.button("🪄 Correr y Autocurar", key="studio_sh", use_container_width=True):
+                    with st.spinner(f"Ejecutando {selected_comp} con autocuración..."):
+                        sh_res = self_healing_execution(start_cmd, filepath=os.path.join(comp_path, main_py))
+                        if sh_res["status"] == "success":
+                            st.success("✅ Funciona correctamente.")
+                        else:
+                            st.error("❌ No se pudo curar automáticamente.")
+                        with st.expander("Detalles"):
+                            st.code(sh_res["result"]["stdout"] or sh_res["result"]["stderr"])
 
             st.divider()
             st.subheader("📝 Guía del Componente")
