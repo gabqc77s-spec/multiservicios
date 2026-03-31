@@ -119,7 +119,9 @@ with tab3:
             if ai_target and ai_instruction:
                 with st.spinner(f"Gemini está editando {ai_target}..."):
                     if ai_edit_file(ai_target, ai_instruction):
-                        st.success(f"Archivo {ai_target} editado con éxito.")
+                        # Ensure we show the resolved path to the user
+                        resolved_path = Path(ai_target).resolve().as_posix()
+                        st.success(f"Archivo editado con éxito en: {resolved_path}")
                         st.session_state.graph = scan_directory()
                         st.session_state.index = create_or_load_index(force_refresh=True)
                         st.session_state.chat_engines = {}
@@ -374,10 +376,15 @@ with tab5:
                         file_finder_prompt = f"Basado en esta instrucción: '{prompt}', ¿cuál de estos archivos debería editar? RESPONDE SOLO CON LA RUTA DEL ARCHIVO: {comp_files}"
                         target_file_guess = query_index(st.session_state.index, file_finder_prompt).strip()
 
-                        if target_file_guess in comp_files:
-                            full_path = os.path.join(comp_path, target_file_guess)
-                            if ai_edit_file(full_path, prompt):
-                                response = f"✅ He aplicado los cambios en `{target_file_guess}` según tu instrucción."
+                        # Normalize target_file_guess to handle different slashes
+                        norm_guess = target_file_guess.replace("\\", "/")
+                        norm_comp_files = [f.replace("\\", "/") for f in comp_files]
+
+                        if norm_guess in norm_comp_files:
+                            # Construct path safely using pathlib
+                            full_path = (Path(comp_path) / norm_guess).resolve()
+                            if ai_edit_file(str(full_path), prompt):
+                                response = f"✅ He aplicado los cambios en: `{full_path.as_posix()}`"
                                 st.session_state.index = create_or_load_index(force_refresh=True)
                                 # Re-initialize chat engine to pick up new file content
                                 st.session_state.chat_engines[selected_comp] = get_chat_engine(
@@ -385,7 +392,7 @@ with tab5:
                                     chat_history_dicts=st.session_state.studio_chats[selected_comp]
                                 )
                             else:
-                                response = f"❌ Tuve un problema al intentar editar `{target_file_guess}`."
+                                response = f"❌ Tuve un problema al intentar editar el archivo en `{full_path.as_posix()}`."
                         else:
                             # Use chat engine for response
                             chat_res = chat_engine.chat(prompt)
