@@ -38,5 +38,7 @@ def test_scaffold_component_mock(tmp_path):
     assert (component_path / "README.md").exists()
 
 def test_self_healing_placeholder():
-    result = self_healing_execution("ls -l")
-    assert result["returncode"] == 0
+    # self_healing_execution returns a dict with 'status', 'result', and 'history'
+    res = self_healing_execution("ls -l")
+    assert res["status"] == "success"
+    assert res["result"]["returncode"] == 0

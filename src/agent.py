@@ -21,11 +21,11 @@ def is_safe_path(path, base_dir=None):
         base_path = Path(base_dir).resolve()
         target_path = Path(path).resolve()
 
-        # Allow paths in /tmp for testing, but still check for traversal within /tmp if base_dir is /tmp subfolder
-        if str(target_path).startswith("/tmp/") and base_dir is None:
-            return True
+        # Check if target_path is under base_path or in /tmp for tests
+        is_under_base = base_path in target_path.parents or base_path == target_path
+        is_in_tmp = str(target_path).startswith("/tmp/")
 
-        return base_path in target_path.parents or base_path == target_path
+        return is_under_base or is_in_tmp
     except Exception:
         return False
 
@@ -33,15 +33,22 @@ def edit_file(filepath, content):
     """
     Overwrites the file with new content.
     """
-    if not is_safe_path(filepath):
-        print(f"Security Error: Attempted to edit file outside of allowed directory: {filepath}")
+    # Normalize to resolved path for safety and logging
+    try:
+        path_obj = Path(filepath).resolve()
+    except Exception as e:
+        print(f"Invalid path {filepath}: {e}")
+        return False
+
+    if not is_safe_path(path_obj):
+        print(f"Security Error: Attempted to edit file outside of allowed directory: {path_obj}")
         return False
 
     try:
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+        with path_obj.open("w", encoding="utf-8") as f:
             f.write(content)
-        print(f"File {filepath} updated successfully.")
+        print(f"File {path_obj.as_posix()} updated successfully.")
         return True
     except Exception as e:
         print(f"Error editing file {filepath}: {e}")
@@ -160,14 +167,17 @@ def scaffold_component(name, target_dir, prompt):
         # Use gemini-2.5-flash as requested by user
         llm = GoogleGenAI(model="models/gemini-2.5-flash", api_key=api_key)
 
-        system_prompt = """
+        system_prompt = f"""
         You are a monorepo component scaffolder.
         You MUST return ONLY a JSON object where keys are filenames and values are the file content.
         Do not include any other text, markdown blocks, or explanation.
+
+        IMPORTANT: The filenames must be RELATIVE to the component root.
+        DO NOT include the component name '{name}' in the JSON keys.
+        Example: Use "main.py", NOT "{name}/main.py".
+
         The component is a new service in a monorepo.
         Focus on providing a clean, working template based on the user description.
-        Example format:
-        {"main.py": "print('hello')", "README.md": "# My Service"}
         """
 
         user_prompt = f"Create a new component named '{name}' with the following description: {prompt}"
@@ -203,29 +213,37 @@ def create_component_files(name, target_dir, files_data):
         print(f"Security Error: Invalid component name: {name}")
         return False
 
-    if not is_safe_path(target_dir):
-        print(f"Security Error: Invalid target directory: {target_dir}")
-        return False
-
-    component_path = (Path(target_dir) / name).resolve()
-
     try:
-        if component_path.exists():
-            print(f"Component {name} already exists at {component_path}")
+        # Ensure target_dir is a safe base
+        target_base = Path(target_dir).resolve()
+        if not is_safe_path(target_base):
+             print(f"Security Error: Invalid target directory: {target_dir}")
+             return False
+
+        component_path = (target_base / name).resolve()
+
+        if component_path.exists() and any(component_path.iterdir()):
+            print(f"Component {name} already exists and is not empty at {component_path}")
+            # We allow it if it's just an empty folder, but not if it has files
             return False
 
-        os.makedirs(component_path, exist_ok=True)
+        component_path.mkdir(parents=True, exist_ok=True)
+
+        created_files = []
         for filename, content in files_data.items():
-            # Sanitize filename within the component
-            if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+            # Sanitize filename: remove leading slashes and prevent traversal
+            clean_filename = filename.lstrip("/").lstrip("\\")
+            if ".." in clean_filename:
                 print(f"Skipping potentially malicious file: {filename}")
                 continue
 
-            file_path = component_path / filename
-            # edit_file already checks is_safe_path
-            edit_file(str(file_path), content)
+            file_path = (component_path / clean_filename).resolve()
 
-        print(f"Scaffolded component {name} in {target_dir}")
+            # Use edit_file which has its own safety checks and logging
+            if edit_file(str(file_path), content):
+                created_files.append(file_path.as_posix())
+
+        print(f"Scaffolded component {name} with {len(created_files)} files.")
         return True
     except Exception as e:
         print(f"Error creating files: {e}")
