@@ -20,7 +20,10 @@ class ProcessManager:
         Starts a service as a background process and keeps track of its PID.
         Safe execution without shell=True.
         """
+        # Normalize command to use / instead of \ to prevent escape issues in Windows
+        command = command.replace("\\", "/")
         print(f"Starting service {name}: {command}")
+
         try:
             # Split command safely
             args = shlex.split(command)

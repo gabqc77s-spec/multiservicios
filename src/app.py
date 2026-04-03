@@ -275,7 +275,9 @@ with tab4:
                     if os.path.isdir(comp_path):
                         main_py = next((f for f in os.listdir(comp_path) if f.endswith("main.py") or f.endswith("app.py")), None)
                         if main_py:
-                            cmd = f"python3 {os.path.join(comp_path, main_py)}"
+                            # Use as_posix() to prevent \f (form-feed) and other escape issues in Windows paths
+                            full_main_path = Path(comp_path) / main_py
+                            cmd = f"python3 {full_main_path.as_posix()}"
                             st.session_state.manager.start_service(comp, cmd)
             st.rerun()
 
@@ -420,7 +422,9 @@ with tab5:
             # Start/Stop Logic
             main_py = next((f for f in comp_files if f.endswith("main.py") or f.endswith("app.py")), None)
             if main_py:
-                start_cmd = f"python {os.path.join(comp_path, main_py)}"
+                # Use as_posix() to prevent Windows path escape issues (\f, \n, etc.)
+                full_main_path = Path(comp_path) / main_py
+                start_cmd = f"python {full_main_path.as_posix()}"
                 if st.button("🚀 Iniciar Servicio", key="studio_start", use_container_width=True):
                     if st.session_state.manager.start_service(selected_comp, start_cmd):
                         st.success(f"{selected_comp} iniciado.")
@@ -432,7 +436,9 @@ with tab5:
                 st.divider()
                 if st.button("🪄 Correr y Autocurar", key="studio_sh", use_container_width=True):
                     with st.spinner(f"Ejecutando {selected_comp} con autocuración..."):
-                        sh_res = self_healing_execution(start_cmd, filepath=os.path.join(comp_path, main_py))
+                        # Ensure filepath is also POSIX for consistency
+                        sh_filepath = (Path(comp_path) / main_py).as_posix()
+                        sh_res = self_healing_execution(start_cmd, filepath=sh_filepath)
                         if sh_res["status"] == "success":
                             st.success("✅ Funciona correctamente.")
                         else:
