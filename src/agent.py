@@ -5,42 +5,25 @@ import json
 import shlex
 from pathlib import Path, PurePath
 from llama_index.llms.google_genai import GoogleGenAI
+try:
+    from .utils import is_safe_path, clean_command, normalize_path, resolve_path
+except ImportError:
+    from utils import is_safe_path, clean_command, normalize_path, resolve_path
 
 # Restricted list of allowed base commands for security
 ALLOWED_COMMANDS = ["ls", "pytest", "python", "python3", "npm", "yarn", "pip", "git", "echo"]
 
-def is_safe_path(path, base_dir=None):
-    """
-    Validates that the path is within the base_dir (defaults to current working directory)
-    and does not attempt to escape it using '..'.
-    """
-    if base_dir is None:
-        base_dir = os.getcwd()
-
-    try:
-        base_path = Path(base_dir).resolve()
-        target_path = Path(path).resolve()
-
-        # Check if target_path is under base_path or in /tmp for tests
-        is_under_base = base_path in target_path.parents or base_path == target_path
-        is_in_tmp = str(target_path).startswith("/tmp/")
-
-        return is_under_base or is_in_tmp
-    except Exception:
-        return False
-
-def edit_file(filepath, content):
+def edit_file(filepath, content, base_dir=None):
     """
     Overwrites the file with new content.
     """
     # Normalize to resolved path for safety and logging
-    try:
-        path_obj = Path(filepath).resolve()
-    except Exception as e:
-        print(f"Invalid path {filepath}: {e}")
+    path_obj = resolve_path(filepath)
+    if not path_obj:
+        print(f"Invalid path {filepath}")
         return False
 
-    if not is_safe_path(path_obj):
+    if not is_safe_path(path_obj, base_dir=base_dir):
         print(f"Security Error: Attempted to edit file outside of allowed directory: {path_obj}")
         return False
 
@@ -48,7 +31,7 @@ def edit_file(filepath, content):
         path_obj.parent.mkdir(parents=True, exist_ok=True)
         with path_obj.open("w", encoding="utf-8") as f:
             f.write(content)
-        print(f"File {path_obj.as_posix()} updated successfully.")
+        print(f"File {normalize_path(path_obj)} updated successfully.")
         return True
     except Exception as e:
         print(f"Error editing file {filepath}: {e}")
@@ -65,7 +48,7 @@ def run_command(command, cwd="."):
     try:
         # En Windows, shlex.split puede comerse las barras invertidas si no se escapan.
         # Normalizamos a barras normales para evitar errores de ruta.
-        command = command.replace("\\", "/")
+        command = clean_command(command)
 
         # Split command into a list of arguments safely
         args = shlex.split(command)
@@ -103,7 +86,8 @@ def ai_edit_file(filepath, instruction):
     """
     Uses Gemini LLM to edit an existing file based on natural language instructions.
     """
-    if not is_safe_path(filepath):
+    path_obj = resolve_path(filepath)
+    if not is_safe_path(path_obj):
         print(f"Security Error: Attempted to read file outside of allowed directory: {filepath}")
         return False
 
@@ -237,11 +221,11 @@ def create_component_files(name, target_dir, files_data):
                 print(f"Skipping potentially malicious file: {filename}")
                 continue
 
-            file_path = (component_path / clean_filename).resolve()
+            file_path = resolve_path(component_path / clean_filename)
 
             # Use edit_file which has its own safety checks and logging
             if edit_file(str(file_path), content):
-                created_files.append(file_path.as_posix())
+                created_files.append(normalize_path(file_path))
 
         print(f"Scaffolded component {name} with {len(created_files)} files.")
         return True
@@ -253,7 +237,8 @@ def ai_fix_file(filepath, command, error_message):
     """
     Uses Gemini to fix a file based on a command execution error.
     """
-    if not is_safe_path(filepath):
+    path_obj = resolve_path(filepath)
+    if not is_safe_path(path_obj):
         return False
 
     api_key = os.environ.get("GOOGLE_API_KEY")

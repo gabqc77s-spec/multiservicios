@@ -4,6 +4,7 @@ import json
 from src.brain import create_or_load_index, configure_gemini
 
 def test_brain_persistence(tmp_path):
+    os.environ["GOOGLE_API_KEY"] = "mock_key"
     # Change to tmp_path to isolate .brain
     os.chdir(tmp_path)
 

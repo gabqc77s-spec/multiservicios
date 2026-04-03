@@ -6,11 +6,27 @@ from scanner import scan_directory, save_graph
 from brain import create_or_load_index, query_index, get_chat_engine
 from agent import edit_file, ai_edit_file, run_command, scaffold_component, self_healing_execution, git_commit_changes
 from orchestrator import ProcessManager
+from utils import normalize_path, resolve_path, get_root_dir
+from watcher import start_watcher
 from pyvis.network import Network
 import streamlit.components.v1 as components
 
 # Page configuration
 st.set_page_config(page_title="Monorepo Manager Agent", layout="wide")
+
+def background_refresh():
+    """Triggered by the file watcher to refresh the index."""
+    try:
+        # We don't have direct access to st.session_state in a background thread
+        # But we can update the index files on disk
+        print("Background RAG refresh triggered...")
+        create_or_load_index(force_refresh=True)
+    except Exception as e:
+        print(f"Error in background refresh: {e}")
+
+# Start File Watcher (Only once)
+if "watcher" not in st.session_state:
+    st.session_state.watcher = start_watcher(str(get_root_dir()), background_refresh)
 
 # Persistent State Management
 if "manager" not in st.session_state:
@@ -120,7 +136,7 @@ with tab3:
                 with st.spinner(f"Gemini está editando {ai_target}..."):
                     if ai_edit_file(ai_target, ai_instruction):
                         # Ensure we show the resolved path to the user
-                        resolved_path = Path(ai_target).resolve().as_posix()
+                        resolved_path = normalize_path(resolve_path(ai_target))
                         st.success(f"Archivo editado con éxito en: {resolved_path}")
                         st.session_state.graph = scan_directory()
                         st.session_state.index = create_or_load_index(force_refresh=True)
@@ -195,6 +211,7 @@ with tab3:
                 with st.spinner(f"Gemini está generando {sc_name}..."):
                     if scaffold_component(sc_name, sc_dir, sc_desc):
                         st.success(f"Componente {sc_name} creado con éxito en {sc_dir}/")
+                        st.session_state.last_scaffolded = {"name": sc_name, "dir": sc_dir}
                         st.session_state.graph = scan_directory()
                         st.session_state.index = create_or_load_index(force_refresh=True)
                         st.session_state.chat_engines = {}
@@ -208,6 +225,21 @@ with tab3:
                         st.error("Error al crear el componente. Revisa el nombre o la API Key.")
             else:
                 st.warning("Por favor completa todos los campos.")
+
+    if "last_scaffolded" in st.session_state:
+        with st.container(border=True):
+            ls = st.session_state.last_scaffolded
+            st.write(f"💡 **Siguientes pasos para '{ls['name']}':**")
+            c1, c2 = st.columns(2)
+            if c1.button(f"📦 Instalar deps para {ls['name']}", use_container_width=True):
+                target_path = os.path.join(ls['dir'], ls['name'])
+                res = run_command(f"pip install -r {os.path.join(target_path, 'requirements.txt')}")
+                if res["returncode"] == 0: st.success("Instalado.")
+                else: st.error("Fallo.")
+
+            if c2.button(f"🚀 Ir a Studio ({ls['name']})", use_container_width=True):
+                # En un app real, podríamos usar st.set_query_params o un estado
+                st.info("Por favor, navega a la pestaña 'Project Studio'.")
 
     with col_sc2:
         if st.button("💾 Auto-Commit Cambios", key="git_commit_btn", use_container_width=True):
@@ -258,10 +290,16 @@ with tab4:
         st.write("")
         if st.button("🚀 Iniciar", key="srv_start", use_container_width=True):
             if s_name and s_cmd:
-                if st.session_state.manager.start_service(s_name, s_cmd):
-                    st.success(f"{s_name} OK")
+                # Pre-check
+                check = st.session_state.manager.pre_check_service(s_name, s_cmd)
+                if check["status"] == "error":
+                    for err in check["errors"]:
+                        st.error(f"❌ Error Preventivo: {err}")
                 else:
-                    st.error("Error")
+                    if st.session_state.manager.start_service(s_name, s_cmd):
+                        st.success(f"{s_name} OK")
+                    else:
+                        st.error("Error al iniciar. Revisa los logs.")
 
     st.subheader("Servicios en Ejecución")
     col_start1, col_start2, col_stop = st.columns([4, 1, 1])
@@ -277,7 +315,7 @@ with tab4:
                         if main_py:
                             # Use as_posix() to prevent \f (form-feed) and other escape issues in Windows paths
                             full_main_path = Path(comp_path) / main_py
-                            cmd = f"python3 {full_main_path.as_posix()}"
+                            cmd = f"python3 {normalize_path(full_main_path)}"
                             st.session_state.manager.start_service(comp, cmd)
             st.rerun()
 
@@ -384,9 +422,9 @@ with tab5:
 
                         if norm_guess in norm_comp_files:
                             # Construct path safely using pathlib
-                            full_path = (Path(comp_path) / norm_guess).resolve()
+                            full_path = resolve_path(Path(comp_path) / norm_guess)
                             if ai_edit_file(str(full_path), prompt):
-                                response = f"✅ He aplicado los cambios en: `{full_path.as_posix()}`"
+                                response = f"✅ He aplicado los cambios en: `{normalize_path(full_path)}`"
                                 st.session_state.index = create_or_load_index(force_refresh=True)
                                 # Re-initialize chat engine to pick up new file content
                                 st.session_state.chat_engines[selected_comp] = get_chat_engine(
@@ -424,7 +462,7 @@ with tab5:
             if main_py:
                 # Use as_posix() to prevent Windows path escape issues (\f, \n, etc.)
                 full_main_path = Path(comp_path) / main_py
-                start_cmd = f"python {full_main_path.as_posix()}"
+                start_cmd = f"python {normalize_path(full_main_path)}"
                 if st.button("🚀 Iniciar Servicio", key="studio_start", use_container_width=True):
                     if st.session_state.manager.start_service(selected_comp, start_cmd):
                         st.success(f"{selected_comp} iniciado.")
@@ -437,7 +475,7 @@ with tab5:
                 if st.button("🪄 Correr y Autocurar", key="studio_sh", use_container_width=True):
                     with st.spinner(f"Ejecutando {selected_comp} con autocuración..."):
                         # Ensure filepath is also POSIX for consistency
-                        sh_filepath = (Path(comp_path) / main_py).as_posix()
+                        sh_filepath = normalize_path(Path(comp_path) / main_py)
                         sh_res = self_healing_execution(start_cmd, filepath=sh_filepath)
                         if sh_res["status"] == "success":
                             st.success("✅ Funciona correctamente.")

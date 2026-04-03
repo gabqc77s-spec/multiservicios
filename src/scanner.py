@@ -1,6 +1,10 @@
 import os
 import json
 from pathlib import Path
+try:
+    from .utils import normalize_path, resolve_path, get_relative_path
+except ImportError:
+    from utils import normalize_path, resolve_path, get_relative_path
 
 def scan_directory(root_path="."):
     """
@@ -21,24 +25,24 @@ def scan_directory(root_path="."):
         # Also ignore hidden folders starting with a dot
         dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith(".")]
 
-        rel_current = os.path.relpath(current_path, root)
+        rel_current = get_relative_path(current_path, root)
         if rel_current == ".":
             rel_current = "root"
 
         graph["nodes"].append({
             "id": rel_current,
             "type": "directory",
-            "path": str(current_path)
+            "path": normalize_path(current_path)
         })
 
         for file in files:
             file_path = Path(current_path) / file
-            rel_file = os.path.relpath(file_path, root)
+            rel_file = get_relative_path(file_path, root)
 
             graph["nodes"].append({
                 "id": rel_file,
                 "type": "file",
-                "path": str(file_path),
+                "path": normalize_path(file_path),
                 "extension": file_path.suffix
             })
 
@@ -50,7 +54,7 @@ def scan_directory(root_path="."):
 
         # Add edges for directories (parent -> child)
         if rel_current != "root":
-            parent_dir = os.path.relpath(os.path.dirname(current_path), root)
+            parent_dir = get_relative_path(os.path.dirname(current_path), root)
             if parent_dir == ".":
                 parent_dir = "root"
             graph["edges"].append({

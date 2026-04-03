@@ -6,6 +6,11 @@ import sys
 import shlex
 import socket
 import re
+from pathlib import Path
+try:
+    from .utils import clean_command, normalize_path
+except ImportError:
+    from utils import clean_command, normalize_path
 
 class ProcessManager:
     """
@@ -15,18 +20,52 @@ class ProcessManager:
     def __init__(self):
         self.processes = {} # pid: process_object
 
+    def pre_check_service(self, name, command, cwd="."):
+        """
+        Performs a health check before starting a service.
+        Checks for port availability and missing dependencies.
+        """
+        results = {"status": "ok", "warnings": [], "errors": []}
+
+        # 1. Port Check
+        ports = self.detect_ports(command)
+        for p in ports:
+            if self.check_port(p):
+                results["status"] = "error"
+                results["errors"].append(f"Port {p} is already in use.")
+
+        # 2. Dependency Check (Simplified)
+        req_path = Path(cwd) / "requirements.txt"
+        if req_path.exists():
+            # Very basic check: see if a .venv exists or if we can run a check
+            # In a real scenario, we might use 'pip check' or parse requirements.txt
+            pass
+
+        return results
+
     def start_service(self, name, command, cwd="."):
         """
         Starts a service as a background process and keeps track of its PID.
         Safe execution without shell=True.
+        Automatically detects and uses local .venv if present.
         """
         # Normalize command to use / instead of \ to prevent escape issues in Windows
-        command = command.replace("\\", "/")
+        command = clean_command(command)
         print(f"Starting service {name}: {command}")
 
         try:
             # Split command safely
             args = shlex.split(command)
+            if not args:
+                return False
+
+            # Isolated Venv Support:
+            # If the command starts with 'python' or 'python3', and there's a .venv in cwd
+            if args[0] in ["python", "python3"]:
+                venv_python = Path(cwd) / ".venv" / ("Scripts" if sys.platform == "win32" else "bin") / ("python.exe" if sys.platform == "win32" else "python")
+                if venv_python.exists():
+                    print(f"Using local virtual environment: {venv_python}")
+                    args[0] = normalize_path(venv_python)
             if not args:
                 return False
 

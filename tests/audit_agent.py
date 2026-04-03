@@ -14,7 +14,7 @@ def test_agent_granular_security(tmp_path):
     assert is_safe_path(str(base / "../outside.txt"), base_dir=str(base)) == False
 
     # 2. Test edit_file with unsafe path
-    assert edit_file(str(tmp_path / "secret.txt"), "hacked") == False
+    assert edit_file(str(tmp_path / "secret.txt"), "hacked", base_dir=str(base)) == False
 
     # 3. Test run_command with multiple commands (injection attempt)
     # Even if ALLOWED_COMMANDS is "echo", someone might try "echo hello; rm -rf /"
